@@ -21,8 +21,15 @@ const productModel = new Schema<TProduct>(
     },
     category: {
       type: String,
+      enum: ["Men", "Women", "Kids"],
       required: true,
       message: "Category is required",
+    },
+    subCategory: {
+      type: String,
+      enum: ["Topwear", "Bottomwear", "Winterwear"],
+      required: true,
+      message: "Subcategory is required",
     },
     stock: {
       type: Number,
@@ -35,9 +42,9 @@ const productModel = new Schema<TProduct>(
       message: "Images are required",
     },
     size: {
-      type: [String],
+      type: String,
+      enum: ["S", "M", "L", "XL", "XXL"],
       required: true,
-      message: "Size is required",
     },
     bestSeller: {
       type: Boolean,

@@ -15,6 +15,10 @@ export interface TProduct {
     type: string;
     required: boolean;
   };
+  subCategory: {
+    type: string;
+    required: boolean;
+  };
   stock: {
     type: number;
     required: boolean;
@@ -33,5 +37,5 @@ export interface TProduct {
   isDeleted: {
     type: boolean;
     default: false;
-  }
+  };
 }
