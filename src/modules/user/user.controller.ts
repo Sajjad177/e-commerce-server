@@ -6,26 +6,23 @@ import { userService } from "./user.service";
 const registerUser = catchAsync(async (req, res) => {
   const result = await userService.registerUserInDB(req.body);
 
+  const { refreshToken, accessToken, user } = result;
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: false, // set to true in production
+  });
+
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
     success: true,
     message: "User registered successfully",
-    data: result,
+    data: {
+      user,
+      accessToken,
+    },
   });
 });
 
-// const loginUser = catchAsync(async (req, res) => {
-//   const result = await userService.loginUserInDB(req.body);
-
-//   sendResponse(res, {
-//     statusCode: StatusCodes.OK,
-//     success: true,
-//     message: "User logged in successfully",
-//     data: result,
-//   });
-// });
-
 export const userController = {
   registerUser,
-
 };

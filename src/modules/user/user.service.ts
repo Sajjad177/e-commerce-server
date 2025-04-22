@@ -29,7 +29,7 @@ const registerUserInDB = async (payload: TUser) => {
   // send refresh token
   const refreshToken = createToken(
     JwtPayload as any,
-    config.jwt.jwtRefreshTokenSecret as string,
+    config.jwt.refreshTokenSecret as string,
     config.jwt.jwtRefreshTokenExpiresIn as string
   );
 
@@ -39,6 +39,8 @@ const registerUserInDB = async (payload: TUser) => {
     refreshToken,
   };
 };
+
+
 
 export const userService = {
   registerUserInDB,
