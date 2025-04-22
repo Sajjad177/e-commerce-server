@@ -1,41 +1,12 @@
 export interface TProduct {
-  name: {
-    type: string;
-    required: boolean;
-  };
-  description: {
-    type: string;
-    required: boolean;
-  };
-  price: {
-    type: number;
-    required: boolean;
-  };
-  category: {
-    type: string;
-    required: boolean;
-  };
-  subCategory: {
-    type: string;
-    required: boolean;
-  };
-  stock: {
-    type: number;
-    required: boolean;
-  };
-  images: {
-    type: string[];
-  };
-  size: {
-    type: string[];
-    required: boolean;
-  };
-  bestSeller: {
-    type: boolean;
-    default: false;
-  };
-  isDeleted: {
-    type: boolean;
-    default: false;
-  };
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  subCategory: string;
+  stock: number;
+  images: string[];
+  size: string[];
+  bestSeller: boolean;
+  isDeleted: boolean;
 }

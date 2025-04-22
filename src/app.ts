@@ -2,6 +2,7 @@ import express, { Application, RequestHandler } from "express";
 import cors from "cors";
 import globalErrorHandler from "./middleware/globalErrorHandler";
 import notFound from "./middleware/notFound";
+import router from "./router";
 // import router from "./router";
 
 const app: Application = express();
@@ -19,7 +20,7 @@ const corseOptions = {
 
 app.use(cors(corseOptions));
 
-// app.use("/api", router);
+app.use("/api", router);
 
 app.get("/", (req, res) => {
   res.send("Hey there! Welcome to E-Commerce platform.");
