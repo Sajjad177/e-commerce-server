@@ -21,6 +21,7 @@ const userModel = new Schema<TUser, UserModel>(
     cartData: {
       type: [Schema.Types.ObjectId],
       ref: "Product",
+      default: [],
     },
     isDeleted: {
       type: Boolean,
@@ -56,7 +57,7 @@ userModel.statics.isPasswordMatch = async function (
   return await bcrypt.compare(password, hashedPassword);
 };
 
-userModel.statics.isUserExist = async function (email: string) {
+userModel.statics.isUserExistByEmail = async function (email: string) {
   return await User.findOne({ email }).select("+password");
 };
 
