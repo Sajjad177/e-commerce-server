@@ -65,4 +65,8 @@ userModel.statics.isUserExistById = async function (id: string) {
   return await User.findById(id).select("+password");
 };
 
+userModel.statics.isUserDeleted = async function (isDeleted: boolean) {
+  return await User.findOne({ isDeleted }).select("+password");
+};
+
 export const User = model<TUser, UserModel>("User", userModel);

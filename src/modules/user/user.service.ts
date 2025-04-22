@@ -20,7 +20,7 @@ const registerUserInDB = async (payload: TUser) => {
     email: user.email,
   };
 
-  const token = createToken(
+  const accessToken = createToken(
     JwtPayload as any,
     config.jwt.jwtAccessTokenSecret as string,
     config.jwt.jwtAccessTokenExpiresIn as string
@@ -35,7 +35,7 @@ const registerUserInDB = async (payload: TUser) => {
 
   return {
     user,
-    token,
+    accessToken,
     refreshToken,
   };
 };

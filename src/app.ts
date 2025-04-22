@@ -3,7 +3,7 @@ import cors from "cors";
 import globalErrorHandler from "./middleware/globalErrorHandler";
 import notFound from "./middleware/notFound";
 import router from "./router";
-// import router from "./router";
+import cookieParser from "cookie-parser";
 
 const app: Application = express();
 
@@ -19,6 +19,7 @@ const corseOptions = {
 };
 
 app.use(cors(corseOptions));
+app.use(cookieParser());
 
 app.use("/api", router);
 

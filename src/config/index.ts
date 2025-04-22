@@ -10,7 +10,7 @@ export default {
   jwt: {
     jwtAccessTokenSecret: process.env.JWT_ACCESS_TOKEN_SECRET,
     jwtAccessTokenExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN,
-    jwtRefreshTokenSecret: process.env.JWT_REFRESH_TOKEN_SECRET,
+    refreshTokenSecret: process.env.JWT_REFRESH_TOKEN_SECRET,
     jwtRefreshTokenExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
   },
   reset: {
