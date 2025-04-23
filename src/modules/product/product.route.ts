@@ -24,7 +24,7 @@ router.put(
   validateRequest(productValidation.updateProductValidation),
   productController.updateProduct
 );
-router.put(
+router.patch(
   "/:productId",
   validateRequest(productValidation.toggleProductAvailabilityValidation),
   productController.toggleProductAvailability

@@ -20,7 +20,7 @@ const addProductInDB = async (
 };
 
 const getAllProductsFromDB = async () => {
-  const result = await ProductModel.find({ isDeleted: false }).sort({
+  const result = await ProductModel.find().sort({
     createdAt: -1,
   });
   return result;

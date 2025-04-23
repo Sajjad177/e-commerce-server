@@ -15,7 +15,7 @@ router.get("/", userController.getAllUsers);
 router.get("/:userId", userController.getSingelUser);
 router.patch(
   "/:userId",
-  // validateRequest(userValidation.toggleUserAvailabilityValidation),
+  validateRequest(userValidation.toggleAvailabilityValidation),
   userController.toggleUserAvailability
 );
 

@@ -8,6 +8,16 @@ const userRegisterValidation = z.object({
   }),
 });
 
+
+const toggleAvailabilityValidation = z.object({
+  body: z.object({
+    isDeleted: z.boolean().optional(),
+  }),
+})
+
+
+
 export const userValidation = {
   userRegisterValidation,
+  toggleAvailabilityValidation,
 };
