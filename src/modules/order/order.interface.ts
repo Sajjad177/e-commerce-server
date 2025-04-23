@@ -1,0 +1,12 @@
+import { Types } from "mongoose";
+
+export type TOrder = {
+  userId: Types.ObjectId;
+  products: Types.ObjectId[];
+  amount: number;
+  address: string;
+  status: string;
+  paymentMethod: string;
+  payment: boolean;
+  paymentStatus: "pending" | "success" | "failed";
+};
