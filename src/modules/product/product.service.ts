@@ -47,7 +47,19 @@ const updateProductInDB = async (productId: string, payload: TProduct) => {
   return result;
 };
 
-const removeProductFromDB = async () => {};
+const removeProductFromDB = async (productId: string) => {
+  const product = await ProductModel.findById(productId);
+  if (!product) {
+    throw new AppError("Product not found", StatusCodes.NOT_FOUND);
+  }
+
+  const result = await ProductModel.findByIdAndUpdate(
+    productId,
+    { isDeleted: true },
+    { new: true }
+  );
+  return result;
+};
 
 export const productService = {
   addProductInDB,

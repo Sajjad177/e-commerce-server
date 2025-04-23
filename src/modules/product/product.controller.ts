@@ -52,7 +52,17 @@ const updateProduct = catchAsync(async (req, res) => {
   });
 });
 
-const removeProduct = catchAsync(async (req, res) => {});
+const removeProduct = catchAsync(async (req, res) => {
+  const { productId } = req.params;
+  const result = await productService.removeProductFromDB(productId);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Product removed successfully",
+    data: result,
+  });
+});
 
 export const productController = {
   addProduct,
