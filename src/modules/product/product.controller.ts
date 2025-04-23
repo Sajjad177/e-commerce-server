@@ -52,9 +52,9 @@ const updateProduct = catchAsync(async (req, res) => {
   });
 });
 
-const removeProduct = catchAsync(async (req, res) => {
+const toggleProductAvailability = catchAsync(async (req, res) => {
   const { productId } = req.params;
-  const result = await productService.removeProductFromDB(productId);
+  const result = await productService.toggleProductAvailabilityInBD(productId);
 
   sendResponse(res, {
     statusCode: 200,
@@ -69,5 +69,5 @@ export const productController = {
   getAllProducts,
   getSingleProduct,
   updateProduct,
-  removeProduct,
+  toggleProductAvailability,
 };
