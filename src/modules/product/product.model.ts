@@ -39,12 +39,14 @@ const productModel = new Schema<TProduct>(
     },
     images: {
       type: [String],
+      required: true,
       message: "Images are required",
     },
     size: {
-      type: String,
+      type: [String],
       enum: ["S", "M", "L", "XL", "XXL"],
       required: true,
+      message: "Size is required",
     },
     bestSeller: {
       type: Boolean,
