@@ -23,6 +23,44 @@ const registerUser = catchAsync(async (req, res) => {
   });
 });
 
+const getAllUsers = catchAsync(async (req, res) => {
+  const result = await userService.getAllUserFromDB();
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "Users retrieved successfully",
+    data: result,
+  });
+});
+
+const getSingelUser = catchAsync(async (req, res) => {
+  const { userId } = req.params;
+  const result = await userService.singleUserFromDB(userId);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "User retrieved successfully",
+    data: result,
+  });
+});
+
+const toggleUserAvailability = catchAsync(async (req, res) => {
+  const { userId } = req.params;
+  const result = await userService.toggleUserAvailabilityFromDB(userId);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "User availability toggled successfully",
+    data: result,
+  });
+});
+
 export const userController = {
   registerUser,
+  getAllUsers,
+  getSingelUser,
+  toggleUserAvailability,
 };

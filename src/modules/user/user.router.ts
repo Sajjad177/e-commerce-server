@@ -11,4 +11,12 @@ router.post(
   userController.registerUser
 );
 
+router.get("/", userController.getAllUsers);
+router.get("/:userId", userController.getSingelUser);
+router.patch(
+  "/:userId",
+  // validateRequest(userValidation.toggleUserAvailabilityValidation),
+  userController.toggleUserAvailability
+);
+
 export const userRouter = router;

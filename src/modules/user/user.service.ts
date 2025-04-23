@@ -40,8 +40,47 @@ const registerUserInDB = async (payload: TUser) => {
   };
 };
 
+const getAllUserFromDB = async () => {
+  const users = await User.find({}).select("-password -refreshToken -__v");
 
+  if (!users) {
+    throw new AppError("No users found", StatusCodes.NOT_FOUND);
+  }
+
+  return users;
+};
+
+const singleUserFromDB = async (userId: string) => {
+  const user = await User.findById(userId).select(
+    "-password -refreshToken -__v"
+  );
+
+  if (!user) {
+    throw new AppError("User not found", StatusCodes.NOT_FOUND);
+  }
+
+  return user;
+};
+
+const toggleUserAvailabilityFromDB = async (userId: string) => {
+  const user = await User.findById(userId).select("-password -__v");
+
+  if (!user) {
+    throw new AppError("User not found", StatusCodes.NOT_FOUND);
+  }
+
+  const result = await User.findByIdAndUpdate(
+    userId,
+    { isDeleted: !user.isDeleted },
+    { new: true }
+  );
+
+  return result;
+};
 
 export const userService = {
   registerUserInDB,
+  getAllUserFromDB,
+  singleUserFromDB,
+  toggleUserAvailabilityFromDB,
 };
