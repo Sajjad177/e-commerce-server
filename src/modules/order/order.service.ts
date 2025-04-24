@@ -118,9 +118,17 @@ const placeOrderIntoDBWithStripe = async (order: any) => {};
 
 const placeOrderIntoDBWithShurjopay = async (order: any) => {};
 
-const getAllOrdersFromDB = async () => {};
+const getAllOrdersFromDB = async () => {
+  const orders = await Order.find({}).populate("products.productId userId");
+  return orders;
+};
 
-const getUserOwnOrdersFromDB = async (userId: string) => {};
+const getUserOwnOrdersFromDB = async (userId: string) => {
+  const result = await Order.find({ userId }).populate(
+    "products.productId userId"
+  );
+  return result;
+};
 
 const updateOrderStatusFromDB = async (orderId: string, status: string) => {};
 

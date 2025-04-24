@@ -14,7 +14,8 @@ router.post("/stripe-order", orderController.placeOrderWithStripe);
 router.post("/shurjopay-order", orderController.placeOrderWithShurjopay);
 
 router.get("/", orderController.getAllOrders);
-router.get("/user-order", orderController.getUserOwnOrders);
+router.get("/own", auth(USER_ROLE.user), orderController.getUserOwnOrders);
+
 router.patch("/:orderId", orderController.updateOrderStatus);
 
 export const orderRouter = router;
