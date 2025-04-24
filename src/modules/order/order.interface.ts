@@ -5,7 +5,7 @@ export type TOrder = {
   products: Types.ObjectId[];
   amount: number;
   address: string;
-  status: string;
+  status: "pending" | "delivered" | "cancelled";
   paymentMethod: string;
   payment: boolean;
   paymentStatus: "Pending" | "Paid" | "Failed" | "Cancelled";

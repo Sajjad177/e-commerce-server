@@ -30,7 +30,8 @@ const orderSchema = new Schema<TOrder>(
     },
     status: {
       type: String,
-      default: "Order Placed",
+      enum: ["pending", "delivered", "cancelled"],
+      default: "pending",
     },
     paymentMethod: {
       type: String,

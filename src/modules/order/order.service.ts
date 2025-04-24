@@ -289,7 +289,8 @@ const verifyPayment = async (
 };
 
 const getAllOrdersFromDB = async () => {
-  const orders = await Order.find({}).populate("products.productId userId");
+  // const orders = await Order.find({}).populate("products.productId userId");
+  const orders = await Order.find({});
   return orders;
 };
 
@@ -300,7 +301,50 @@ const getUserOwnOrdersFromDB = async (userId: string) => {
   return result;
 };
 
-const updateOrderStatusFromDB = async (orderId: string, status: string) => {};
+const updateOrderStatusFromDB = async (orderId: string, status: string) => {
+  const order = await Order.findById(orderId);
+  if (!order) {
+    throw new AppError("Order not found", StatusCodes.NOT_FOUND);
+  }
+
+  const product = order.products.map((item) => {
+    return {
+      productId: item.productId,
+      quantity: item.quantity,
+    };
+  });
+
+  const productQuantity = product.map((item) => item.quantity);
+  // console.log(productQuantity); from there i got data of quantity is: [ 2 ]
+
+  const productData = await ProductModel.find({
+    _id: { $in: product.map((item) => item.productId) },
+  });
+
+  if (status === "cancelled" && productData) {
+    for (let i = 0; i < productData.length; i++) {
+      const currentProduct = productData[i];
+      const productItem = product.find(
+        (item) => item.productId.toString() === currentProduct._id.toString()
+      );
+
+      if (productItem) {
+        await ProductModel.findByIdAndUpdate(currentProduct._id, {
+          $inc: { stock: productItem.quantity },
+          $set: { inStock: true },
+        });
+      }
+    }
+  }
+
+  const result = await Order.findOneAndUpdate(
+    { _id: orderId },
+    { status },
+    { new: true }
+  );
+
+  return result;
+};
 
 export const orderService = {
   placeOrderIntoDBWithCOD,
