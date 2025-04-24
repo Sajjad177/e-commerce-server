@@ -15,8 +15,13 @@ const placeOrderWithCOD = catchAsync(async (req, res) => {
   });
 });
 
-const placeOrderWithStripe = catchAsync(async (req, res) => {
-  const result = await orderService.placeOrderIntoDBWithStripe(req.body);
+const placeOrderWithShurjopay = catchAsync(async (req, res) => {
+  const { userId } = req.user;
+  const result = await orderService.placeOrderIntoDBWithShurjopay(
+    req.body,
+    userId,
+    req.ip!
+  );
 
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
@@ -26,8 +31,16 @@ const placeOrderWithStripe = catchAsync(async (req, res) => {
   });
 });
 
-//! Shurjopay payment will do it later--------------------------------
-const placeOrderWithShurjopay = catchAsync(async (req, res) => {});
+const verifyPayment = catchAsync(async (req, res) => {
+  const order = await orderService.verifyPayment(req.query.order_id as string);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "Payment verified successfully",
+    data: order,
+  });
+});
 
 const getAllOrders = catchAsync(async (req, res) => {
   const result = await orderService.getAllOrdersFromDB();
@@ -67,8 +80,8 @@ const updateOrderStatus = catchAsync(async (req, res) => {
 
 export const orderController = {
   placeOrderWithCOD,
-  placeOrderWithStripe,
   placeOrderWithShurjopay,
+  verifyPayment,
   getAllOrders,
   getUserOwnOrders,
   updateOrderStatus,

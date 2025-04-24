@@ -10,8 +10,14 @@ router.post(
   auth(USER_ROLE.user),
   orderController.placeOrderWithCOD
 );
-router.post("/stripe-order", orderController.placeOrderWithStripe);
-router.post("/shurjopay-order", orderController.placeOrderWithShurjopay);
+
+router.post(
+  "/shurjopay-order",
+  auth(USER_ROLE.user),
+  orderController.placeOrderWithShurjopay
+);
+
+router.get("/verify", auth(USER_ROLE.user), orderController.verifyPayment);
 
 router.get("/", orderController.getAllOrders);
 router.get("/own", auth(USER_ROLE.user), orderController.getUserOwnOrders);

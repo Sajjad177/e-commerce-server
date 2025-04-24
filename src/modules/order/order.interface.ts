@@ -8,5 +8,14 @@ export type TOrder = {
   status: string;
   paymentMethod: string;
   payment: boolean;
-  paymentStatus: "pending" | "success" | "failed";
+  paymentStatus: "Pending" | "Paid" | "Failed" | "Cancelled";
+  transaction: {
+    id: string;
+    transactionStatus: string;
+    bank_status: string;
+    sp_code: string;
+    sp_message: string;
+    method: string;
+    date_time: string;
+  };
 };

@@ -43,8 +43,17 @@ const orderSchema = new Schema<TOrder>(
     },
     paymentStatus: {
       type: String,
-      enum: ["pending", "success", "failed"],
-      default: "pending",
+      enum: ["Pending", "Paid", "Failed", "Cancelled"],
+      default: "Pending",
+    },
+    transaction: {
+      id: String,
+      transactionStatus: String,
+      bank_status: String,
+      sp_code: String,
+      sp_message: String,
+      method: String,
+      date_time: String,
     },
   },
   {
