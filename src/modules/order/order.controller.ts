@@ -4,7 +4,7 @@ import sendResponse from "../../utils/sendResponse";
 import { orderService } from "./order.service";
 
 const placeOrderWithCOD = catchAsync(async (req, res) => {
-  const { userId } = req.params;
+  const { userId } = req.user;
   const result = await orderService.placeOrderIntoDBWithCOD(req.body, userId);
 
   sendResponse(res, {

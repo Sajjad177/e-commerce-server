@@ -43,6 +43,7 @@ const loginUserInDB = async (payload: TAuthUser) => {
   return {
     accessToken,
     refreshToken,
+    user,
   };
 };
 

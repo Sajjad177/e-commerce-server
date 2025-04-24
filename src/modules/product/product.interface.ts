@@ -1,4 +1,5 @@
 export interface TProduct {
+  _id: string;
   name: string;
   description: string;
   price: number;
@@ -9,4 +10,5 @@ export interface TProduct {
   size: string[];
   bestSeller: boolean;
   isDeleted: boolean;
+  inStock: boolean;
 }

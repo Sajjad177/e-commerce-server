@@ -56,6 +56,10 @@ const productModel = new Schema<TProduct>(
       type: Boolean,
       default: false,
     },
+    inStock: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

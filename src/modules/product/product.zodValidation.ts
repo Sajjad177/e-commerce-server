@@ -28,6 +28,7 @@ const updateProductValidation = z.object({
     size: z.array(z.string()).optional(),
     bestSeller: z.boolean().optional(),
     isDeleted: z.boolean().optional(),
+    inStock: z.boolean().optional(),
   }),
 });
 

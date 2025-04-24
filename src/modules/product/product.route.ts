@@ -4,6 +4,8 @@ import { multerUpload } from "../../config/multer.config";
 import { parseBody } from "../../middleware/parseBody";
 import validateRequest from "../../middleware/validateRequest";
 import { productValidation } from "./product.zodValidation";
+import auth from "../../middleware/auth";
+import { USER_ROLE } from "../user/user.constant";
 
 const router = express.Router();
 
@@ -15,7 +17,11 @@ router.post(
   productController.addProduct
 );
 
-router.get("/", productController.getAllProducts);
+router.get(
+  "/",
+  auth(USER_ROLE.superAdmin, USER_ROLE.user),
+  productController.getAllProducts
+);
 router.get("/:productId", productController.getSingleProduct);
 router.put(
   "/:productId",

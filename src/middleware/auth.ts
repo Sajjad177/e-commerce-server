@@ -9,7 +9,7 @@ const auth = (...roles: string[]) => {
     try {
       const token = req.headers.authorization;
       if (!token) {
-        throw new AppError("You are not authorized", StatusCodes.UNAUTHORIZED);
+        throw new AppError("Invalid token", StatusCodes.UNAUTHORIZED);
       }
 
       const verifyUserData = verifyToken(
@@ -26,7 +26,7 @@ const auth = (...roles: string[]) => {
       next();
     } catch (error) {
       console.log(error);
-      throw new AppError("Invalid token", StatusCodes.UNAUTHORIZED);
+      throw new AppError("You are not authorized", StatusCodes.UNAUTHORIZED);
     }
   };
 };
