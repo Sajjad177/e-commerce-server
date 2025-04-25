@@ -19,9 +19,8 @@ const userModel = new Schema<TUser, UserModel>(
       required: [true, "Password is required"],
     },
     cartData: {
-      type: [Schema.Types.ObjectId],
-      ref: "Product",
-      default: [],
+      type: Schema.Types.Mixed,
+      default: {},
     },
     isDeleted: {
       type: Boolean,
@@ -29,7 +28,7 @@ const userModel = new Schema<TUser, UserModel>(
     },
     role: {
       type: String,
-      enum: ["user" , "superAdmin"],
+      enum: ["user", "superAdmin"],
       default: "user",
     },
   },

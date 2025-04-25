@@ -1,11 +1,24 @@
 import { Model, Types } from "mongoose";
 
+export interface CartDataItem {
+  quantity: number;
+  name: string;
+  price: number;
+  image: string;
+}
+
+export interface CartData {
+  [productId: string]: {
+    [size: string]: CartDataItem;
+  };
+}
+
 export interface TUser {
   _id: string;
   name: string;
   email: string;
   password: string;
-  cartData: Types.ObjectId[];
+  cartData: CartData;
   isDeleted: boolean;
   role: "user" | "superAdmin";
 }

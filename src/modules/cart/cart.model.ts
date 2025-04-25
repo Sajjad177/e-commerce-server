@@ -29,6 +29,10 @@ const cartSchema = new Schema<TCart>({
     type: Boolean,
     default: false,
   },
+  isBuyNow: {
+    type: Boolean,
+    default: false, // when it's come true then we remove the product from cart
+  },
 });
 
 export const Cart = model<TCart>("Cart", cartSchema);

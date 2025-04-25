@@ -9,4 +9,5 @@ export type TCart = {
   name: string;
   image: string;
   isRemove: boolean;
+  isBuyNow: boolean;
 };
