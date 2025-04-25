@@ -39,4 +39,8 @@ export default {
   },
 
   stripe_secret: process.env.STRIPE_SECRET_KEY,
+  admin: {
+    superAdminEmail: process.env.SUPER_ADMIN_EMAIL,
+    superAdminPassword: process.env.SUPER_ADMIN_PASSWORD,
+  },
 };

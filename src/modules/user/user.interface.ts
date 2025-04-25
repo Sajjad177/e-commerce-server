@@ -7,7 +7,7 @@ export interface TUser {
   password: string;
   cartData: Types.ObjectId[];
   isDeleted: boolean;
-  role: "user";
+  role: "user" | "superAdmin";
 }
 
 export interface UserModel extends Model<TUser> {
