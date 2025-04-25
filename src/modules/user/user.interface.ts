@@ -1,15 +1,15 @@
 import { Model, Types } from "mongoose";
 
-export interface CartDataItem {
+interface CartItemInfo {
   quantity: number;
   name: string;
   price: number;
   image: string;
 }
 
-export interface CartData {
+interface CartData {
   [productId: string]: {
-    [size: string]: CartDataItem;
+    [size: string]: CartItemInfo;
   };
 }
 

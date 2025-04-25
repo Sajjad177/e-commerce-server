@@ -15,9 +15,9 @@ const addToCart = catchAsync(async (req, res) => {
   });
 });
 
-const getAllCart = catchAsync(async (req, res) => {
+const getUserOwnCart = catchAsync(async (req, res) => {
   const { userId } = req.user;
-  const result = await cartService.getAllCartFromDB(userId);
+  const result = await cartService.getUserOwnCartFromDB(userId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -32,8 +32,8 @@ const updateCart = catchAsync(async (req, res) => {});
 
 const removeFromCart = catchAsync(async (req, res) => {
   const { userId } = req.user;
-  const { cartId } = req.params;
-  const result = await cartService.removeFromCartInDB(userId, cartId);
+  const { productId, size } = req.body;
+  const result = await cartService.removeFromCartInDB(userId, productId, size);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -45,7 +45,7 @@ const removeFromCart = catchAsync(async (req, res) => {
 
 export const cartController = {
   addToCart,
-  getAllCart,
+  getUserOwnCart,
   updateCart,
   removeFromCart,
 };

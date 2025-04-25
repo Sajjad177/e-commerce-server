@@ -6,8 +6,12 @@ import { USER_ROLE } from "../user/user.constant";
 const router = express.Router();
 
 router.post("/addto-cart", auth(USER_ROLE.user), cartController.addToCart);
-router.get("/", cartController.getAllCart);
+router.get("/", auth(USER_ROLE.user), cartController.getUserOwnCart);
 
-router.delete("/:cartId", cartController.removeFromCart);
+router.delete(
+  "/remove-from-cart",
+  auth(USER_ROLE.user),
+  cartController.removeFromCart
+);
 
 export const cartRouter = router;

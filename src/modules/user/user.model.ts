@@ -19,7 +19,16 @@ const userModel = new Schema<TUser, UserModel>(
       required: [true, "Password is required"],
     },
     cartData: {
-      type: Schema.Types.Mixed,
+      type: Map,
+      of: {
+        type: Map,
+        of: {
+          quantity: { type: Number, required: true },
+          name: { type: String, required: true },
+          price: { type: Number, required: true },
+          image: { type: String, required: true },
+        },
+      },
       default: {},
     },
     isDeleted: {

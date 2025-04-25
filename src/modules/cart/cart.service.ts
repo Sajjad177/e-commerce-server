@@ -3,37 +3,24 @@ import AppError from "../../errors/AppError";
 import { User } from "../user/user.model";
 import { ProductModel } from "../product/product.model";
 
-type CartData = {
-  [productId: string]: {
-    [size: string]: {
-      quantity: number;
-      name: string;
-      price: number;
-      image: string;
-    };
-  };
-};
-
-export const addToCartInDB = async (payload: any, userId: string) => {
+const addToCartInDB = async (payload: any, userId: string) => {
   const { productId, quantity = 1, size } = payload;
 
   if (!size) {
     throw new AppError("Size is required", StatusCodes.BAD_REQUEST);
   }
 
-  // ✅ Check if user exists
   const user = await User.findById(userId);
   if (!user) {
     throw new AppError("User not found", StatusCodes.NOT_FOUND);
   }
 
-  // ✅ Check if product exists
   const product = await ProductModel.findById(productId);
   if (!product) {
     throw new AppError("Product not found", StatusCodes.NOT_FOUND);
   }
 
-  // ✅ Validate size against allowed sizes in the product
+  // ✅ Validate size
   if (!product.size.includes(size)) {
     throw new AppError(
       `Invalid size. Available sizes are: ${product.size.join(", ")}`,
@@ -41,9 +28,7 @@ export const addToCartInDB = async (payload: any, userId: string) => {
     );
   }
 
-  const cartData: CartData = user.cartData || {};
   const productKey = productId.toString();
-
   const productInfo = {
     quantity,
     name: product.name,
@@ -51,40 +36,114 @@ export const addToCartInDB = async (payload: any, userId: string) => {
     image: product.images[0],
   };
 
-  // ✅ Add or update product in cartData
-  if (cartData[productKey]) {
-    if (cartData[productKey][size]) {
-      cartData[productKey][size].quantity += quantity;
-    } else {
-      cartData[productKey][size] = productInfo;
-    }
-  } else {
-    cartData[productKey] = {
-      [size]: productInfo,
-    };
+  // ✅ Ensure cartData is a Map
+  if (!(user.cartData instanceof Map)) {
+    user.cartData = new Map(Object.entries(user.cartData || {}));
   }
 
-  // ✅ Save to user
-  user.cartData = cartData;
+  let productEntry = user.cartData.get(productKey);
+
+  if (!productEntry) {
+    productEntry = new Map();
+  } else if (!(productEntry instanceof Map)) {
+    productEntry = new Map(Object.entries(productEntry));
+  }
+
+  // ✅ Update quantity or insert new size
+  if (productEntry.has(size)) {
+    const existing = productEntry.get(size);
+    existing.quantity += quantity;
+    productEntry.set(size, existing);
+  } else {
+    productEntry.set(size, productInfo);
+  }
+
+  // ✅ Save back to user
+  user.cartData.set(productKey, productEntry);
   const result = await user.save();
 
   return {
     success: true,
     message: "Product added to cart successfully",
-    cart: result.cartData,
+    result,
   };
 };
 
 // get those cart isRemove is false and isBuyNow is false
-const getAllCartFromDB = async (userId: string) => {};
+const getUserOwnCartFromDB = async (userId: string) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError("User not found", StatusCodes.NOT_FOUND);
+  }
+
+  return user.cartData;
+};
 
 const updateCartInDB = async () => {};
 
-const removeFromCartInDB = async (userId: string, cartId: string) => {};
+const removeFromCartInDB = async (
+  userId: string,
+  productId: string,
+  size: string
+) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError("User not found", StatusCodes.NOT_FOUND);
+  }
+
+  console.log("User found:", user);
+  console.log("CartData before deletion:", user.cartData);
+
+  let cartData = user.cartData;
+
+  // 🛠 Ensure cartData is a Map
+  if (!(cartData instanceof Map)) {
+    cartData = new Map(Object.entries(cartData || {}));
+  }
+
+  const productEntry = cartData.get(productId);
+
+  // ❌ Product or size not found
+  if (!productEntry) {
+    throw new AppError("Product not found in cart", StatusCodes.NOT_FOUND);
+  }
+
+  // 🛠 Ensure productEntry is also a Map
+  const sizeMap =
+    productEntry instanceof Map
+      ? productEntry
+      : new Map(Object.entries(productEntry));
+
+  if (!sizeMap.has(size)) {
+    throw new AppError("Size not found in cart", StatusCodes.NOT_FOUND);
+  }
+
+  // ✅ Delete specific size
+  sizeMap.delete(size);
+
+  // ✅ If sizeMap is empty, delete the product entirely
+  if (sizeMap.size === 0) {
+    cartData.delete(productId);
+  } else {
+    cartData.set(productId, sizeMap);
+  }
+
+  // ✅ Save the updated cartData
+  user.cartData = cartData;
+  user.markModified("cartData");
+
+  const result = await user.save();
+
+  return {
+    success: true,
+    message: "Item removed from cart",
+    result: result.cartData,
+  };
+};
 
 export const cartService = {
   addToCartInDB,
-  getAllCartFromDB,
+  getUserOwnCartFromDB,
   updateCartInDB,
   removeFromCartInDB,
 };
