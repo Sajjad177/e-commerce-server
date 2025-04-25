@@ -14,6 +14,7 @@ router.post(
   multerUpload.fields([{ name: "images" }]),
   parseBody,
   validateRequest(productValidation.createProductValidation),
+  auth(USER_ROLE.superAdmin),
   productController.addProduct
 );
 

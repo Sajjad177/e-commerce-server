@@ -4,8 +4,8 @@ import { User } from "../modules/user/user.model";
 
 const superAdmin = {
   name: "Sajjad Hossain",
-  email: config.email.email_host,
-  password: config.email.email_password,
+  email: config.admin.superAdminEmail,
+  password: config.admin.superAdminPassword,
   role: USER_ROLE.superAdmin,
   isDeleted: false,
   cartData: [],
