@@ -8,6 +8,12 @@ const router = express.Router();
 router.post("/addto-cart", auth(USER_ROLE.user), cartController.addToCart);
 router.get("/", auth(USER_ROLE.user), cartController.getUserOwnCart);
 
+router.patch( 
+  "/update-quantity",
+  auth(USER_ROLE.user),
+  cartController.updateQuantity
+);
+
 router.delete(
   "/remove-from-cart",
   auth(USER_ROLE.user),

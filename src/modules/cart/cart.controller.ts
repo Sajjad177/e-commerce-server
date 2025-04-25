@@ -28,7 +28,6 @@ const getUserOwnCart = catchAsync(async (req, res) => {
 });
 
 //* update is not done-------------------------
-const updateCart = catchAsync(async (req, res) => {});
 
 const removeFromCart = catchAsync(async (req, res) => {
   const { userId } = req.user;
@@ -43,9 +42,21 @@ const removeFromCart = catchAsync(async (req, res) => {
   });
 });
 
+const updateQuantity = catchAsync(async (req, res) => {
+  const { userId } = req.user;
+  const result = await cartService.updateCartQuantity(req.body, userId);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "Product quantity updated successfully",
+    data: result,
+  });
+});
+
 export const cartController = {
   addToCart,
   getUserOwnCart,
-  updateCart,
+  updateQuantity,
   removeFromCart,
 };
