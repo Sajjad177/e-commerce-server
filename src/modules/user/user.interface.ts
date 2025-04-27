@@ -1,16 +1,12 @@
 import { Model, Types } from "mongoose";
 
-interface CartItemInfo {
+interface CartData {
+  productId: Types.ObjectId;
+  size: string;
   quantity: number;
   name: string;
   price: number;
   image: string;
-}
-
-interface CartData {
-  [productId: string]: {
-    [size: string]: CartItemInfo;
-  };
 }
 
 export interface TUser {

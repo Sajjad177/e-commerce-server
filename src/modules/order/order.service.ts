@@ -1,6 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
-
+import mongoose from "mongoose";
 import { StatusCodes } from "http-status-codes";
 import AppError from "../../errors/AppError";
 import { User } from "../user/user.model";
@@ -13,105 +13,139 @@ import { VerificationResponse } from "shurjopay";
 
 const placeOrderIntoDBWithCOD = async (
   payload: {
-    products: { productId: string; quantity: number }[];
     address: string;
   },
   userId: string
 ) => {
-  // 1. Check if user exists
-  const isUserExist = await User.findById(userId);
-  if (!isUserExist) {
-    throw new AppError("User not found", StatusCodes.NOT_FOUND);
-  }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const products = payload.products;
+  try {
+    // 1. Get user with cart data
+    const user = await User.findById(userId).session(session);
+    if (!user) {
+      throw new AppError("User not found", StatusCodes.NOT_FOUND);
+    }
 
-  // 2. Fetch all product details from DB
-  const productDetails = await Promise.all(
-    products.map(async (item) => {
-      const product = await ProductModel.findById(item.productId);
+    const cartData = user.cartData.toObject();
+    if (!cartData || Object.keys(cartData).length === 0) {
+      throw new AppError("Cart is empty", StatusCodes.BAD_REQUEST);
+    }
+
+    // 2. Process cart items
+    let totalAmount = 0;
+    const orderProducts = [];
+    const productUpdates = [];
+
+    // Get all product IDs at once for efficiency
+    const productIds = Object.keys(cartData);
+    const products = await ProductModel.find({
+      _id: { $in: productIds },
+    }).session(session);
+
+    for (const [productId, sizeData] of Object.entries(cartData)) {
+      const product = products.find((p) => p._id.toString() === productId);
       if (!product) {
         throw new AppError(
-          `Product with ID ${item.productId} not found`,
+          `Product ${productId} not found`,
           StatusCodes.NOT_FOUND
         );
       }
 
-      return {
-        ...product.toObject(),
-        orderedQuantity: item.quantity,
-      };
-    })
-  );
+      // Calculate total quantity across all sizes for this product
+      let totalQuantityForProduct = 0;
+      const sizeEntries = [];
 
-  // 3. Validate stock availability
-  for (const item of productDetails) {
-    if (!item.inStock) {
-      throw new AppError(`Product is out of stock`, StatusCodes.BAD_REQUEST);
-    }
+      for (const [size, cartItem] of Object.entries(sizeData)) {
+        // Validate size exists in product
+        if (!product.size.includes(size)) {
+          throw new AppError(
+            `Size ${size} not available for product ${product.name}`,
+            StatusCodes.BAD_REQUEST
+          );
+        }
 
-    if (item.stock < item.orderedQuantity) {
-      throw new AppError(
-        `Product has only ${item.stock} in stock`,
-        StatusCodes.BAD_REQUEST
-      );
-    }
-  }
+        totalQuantityForProduct += cartItem.quantity;
+        sizeEntries.push({ size, ...cartItem });
+      }
 
-  // 4. Update stock & mark inStock = false if needed
-  await Promise.all(
-    productDetails.map(async (item) => {
-      const newStock = item.stock - item.orderedQuantity;
-
-      await ProductModel.findByIdAndUpdate(item._id, {
-        $set: {
-          stock: newStock,
-          inStock: newStock > 0,
-        },
-      });
-
-      if (newStock < 0) {
+      // Check overall stock (since we can't track per-size)
+      if (product.stock < totalQuantityForProduct) {
         throw new AppError(
-          `Unexpected error: stock for ${item.name} dropped below 0`,
-          StatusCodes.INTERNAL_SERVER_ERROR
+          `Insufficient stock for ${product.name}`,
+          StatusCodes.BAD_REQUEST
         );
       }
-    })
-  );
 
-  // 5. Calculate total amount
-  const totalAmount = productDetails.reduce(
-    (acc, item) => acc + item.price * item.orderedQuantity,
-    0
-  );
+      // Add each size variant to order
+      sizeEntries.forEach(({ size, quantity, price, name, image }) => {
+        orderProducts.push({
+          productId: product._id,
+          quantity,
+          size,
+          price,
+          name,
+          image,
+        });
 
-  // 6. Prepare products array for order
-  const orderProducts = products.map((item) => ({
-    productId: new Types.ObjectId(item.productId),
-    quantity: item.quantity,
-  }));
+        totalAmount += quantity * price;
+      });
 
-  const newOrder = await Order.create({
-    userId,
-    products: orderProducts,
-    amount: totalAmount,
-    address: payload.address,
-    paymentMethod: "cod",
-    payment: false,
-    paymentStatus: "Pending",
-  });
+      // Prepare stock update (single update per product)
+      productUpdates.push({
+        updateOne: {
+          filter: { _id: product._id },
+          update: {
+            $inc: { stock: -totalQuantityForProduct },
+            $set: { isStock: product.stock - totalQuantityForProduct > 0 },
+          },
+        },
+      });
+    }
 
-  // 8. Optionally, add order to user's cart/history
-  await User.findByIdAndUpdate(
-    userId,
-    {
-      $push: { cartData: newOrder._id },
-    },
-    { new: true }
-  );
+    // 3. Create the order
+    const order = await OrderModel.create(
+      [
+        {
+          user: userId,
+          products: orderProducts,
+          totalAmount,
+          shippingAddress: payload.address,
+          paymentMethod: "cod",
+          paymentStatus: "Pending",
+          status: "pending",
+        },
+      ],
+      { session }
+    );
 
-  return newOrder;
+    // 4. Update product stocks
+    if (productUpdates.length > 0) {
+      await ProductModel.bulkWrite(productUpdates, { session });
+    }
+
+    // 5. Clear user's cart
+    await User.findByIdAndUpdate(
+      userId,
+      { $set: { cartData: {} } },
+      { session }
+    );
+
+    await session.commitTransaction();
+    await session.endSession();
+
+    return {
+      success: true,
+      message: "Order placed successfully",
+      data: order[0],
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    await session.endSession();
+    throw error;
+  }
 };
+//!---------------------------------------------------
 
 const placeOrderIntoDBWithShurjopay = async (
   payload: {

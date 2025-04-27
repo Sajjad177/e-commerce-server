@@ -20,7 +20,7 @@ const orderSchema = new Schema<TOrder>(
         },
       },
     ],
-    amount: {
+    totalAmount: {
       type: Number,
       required: true,
     },

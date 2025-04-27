@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 export type TOrder = {
   userId: Types.ObjectId;
   products: Types.ObjectId[];
-  amount: number;
+  totalAmount: number;
   address: string;
   status: "pending" | "delivered" | "cancelled";
   paymentMethod: string;

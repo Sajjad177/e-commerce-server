@@ -21,13 +21,12 @@ const userModel = new Schema<TUser, UserModel>(
     cartData: {
       type: Map,
       of: {
-        type: Map,
-        of: {
-          quantity: { type: Number, required: true },
-          name: { type: String, required: true },
-          price: { type: Number, required: true },
-          image: { type: String, required: true },
-        },
+        size: String,
+        quantity: Number,
+        name: String,
+        price: Number,
+        image: String,
+        productId: Schema.Types.ObjectId,
       },
       default: {},
     },

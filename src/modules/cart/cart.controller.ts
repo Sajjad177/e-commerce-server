@@ -27,8 +27,6 @@ const getUserOwnCart = catchAsync(async (req, res) => {
   });
 });
 
-//* update is not done-------------------------
-
 const removeFromCart = catchAsync(async (req, res) => {
   const { userId } = req.user;
   const { productId, size } = req.body;
