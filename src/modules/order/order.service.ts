@@ -27,125 +27,273 @@ const placeOrderIntoDBWithCOD = async (
       throw new AppError("User not found", StatusCodes.NOT_FOUND);
     }
 
-    const cartData = user.cartData.toObject();
-    if (!cartData || Object.keys(cartData).length === 0) {
+    // 2. Check if cart is empty
+    const cartData = user.cartData;
+    if (!cartData || cartData.size === 0) {
       throw new AppError("Cart is empty", StatusCodes.BAD_REQUEST);
     }
 
-    // 2. Process cart items
+    // 3. Process cart items
     let totalAmount = 0;
     const orderProducts = [];
-    const productUpdates = [];
+    const productUpdates = new Map(); // Track stock updates per product
 
-    // Get all product IDs at once for efficiency
-    const productIds = Object.keys(cartData);
+    // Get all unique product IDs from cart
+    const productIds = Array.from(
+      new Set(
+        Array.from(cartData.values()).map((item) => item.productId.toString())
+      )
+    );
+
+    // Fetch all products at once
     const products = await ProductModel.find({
       _id: { $in: productIds },
     }).session(session);
 
-    for (const [productId, sizeData] of Object.entries(cartData)) {
-      const product = products.find((p) => p._id.toString() === productId);
+    // Process each cart item
+    for (const [key, cartItem] of cartData.entries()) {
+      const product = products.find(
+        (p) => p._id.toString() === cartItem.productId.toString()
+      );
       if (!product) {
         throw new AppError(
-          `Product ${productId} not found`,
+          `Product ${cartItem.productId} not found`,
           StatusCodes.NOT_FOUND
         );
       }
 
-      // Calculate total quantity across all sizes for this product
-      let totalQuantityForProduct = 0;
-      const sizeEntries = [];
-
-      for (const [size, cartItem] of Object.entries(sizeData)) {
-        // Validate size exists in product
-        if (!product.size.includes(size)) {
-          throw new AppError(
-            `Size ${size} not available for product ${product.name}`,
-            StatusCodes.BAD_REQUEST
-          );
-        }
-
-        totalQuantityForProduct += cartItem.quantity;
-        sizeEntries.push({ size, ...cartItem });
+      // Initialize stock tracking for this product if not exists
+      if (!productUpdates.has(product._id.toString())) {
+        productUpdates.set(product._id.toString(), {
+          currentStock: product.stock,
+          totalDeduction: 0,
+        });
       }
 
-      // Check overall stock (since we can't track per-size)
-      if (product.stock < totalQuantityForProduct) {
+      const productStock = productUpdates.get(product._id.toString());
+
+      // Validate stock for this item
+      if (productStock.currentStock < cartItem.quantity) {
         throw new AppError(
-          `Insufficient stock for ${product.name}`,
+          `Insufficient stock for ${product.name} (Size: ${cartItem.size}). Only ${productStock.currentStock} available`,
           StatusCodes.BAD_REQUEST
         );
       }
 
-      // Add each size variant to order
-      sizeEntries.forEach(({ size, quantity, price, name, image }) => {
-        orderProducts.push({
-          productId: product._id,
-          quantity,
-          size,
-          price,
-          name,
-          image,
-        });
+      // Update tracking
+      productStock.currentStock -= cartItem.quantity;
+      productStock.totalDeduction += cartItem.quantity;
 
-        totalAmount += quantity * price;
+      // Add to order products
+      orderProducts.push({
+        productId: product._id,
+        quantity: cartItem.quantity,
+        size: cartItem.size,
+        price: cartItem.price,
+        name: cartItem.name,
+        image: cartItem.image,
       });
 
-      // Prepare stock update (single update per product)
-      productUpdates.push({
-        updateOne: {
-          filter: { _id: product._id },
-          update: {
-            $inc: { stock: -totalQuantityForProduct },
-            $set: { isStock: product.stock - totalQuantityForProduct > 0 },
-          },
-        },
-      });
+      // Calculate total
+      totalAmount += cartItem.quantity * cartItem.price;
     }
 
-    // 3. Create the order
-    const order = await OrderModel.create(
+    // 4. Prepare bulk write operations for stock updates
+    const bulkOperations = Array.from(productUpdates.entries()).map(
+      ([productId, stockInfo]) => ({
+        updateOne: {
+          filter: { _id: productId },
+          update: {
+            $inc: { stock: -stockInfo.totalDeduction },
+            $set: {
+              inStock: stockInfo.currentStock - stockInfo.totalDeduction > 0,
+            },
+          },
+        },
+      })
+    );
+
+    // 5. Create order
+    const [order] = await Order.create(
       [
         {
-          user: userId,
+          userId,
           products: orderProducts,
           totalAmount,
-          shippingAddress: payload.address,
-          paymentMethod: "cod",
-          paymentStatus: "Pending",
+          address: payload.address,
           status: "pending",
+          paymentMethod: "cod",
+          payment: false,
+          paymentStatus: "Pending",
         },
       ],
       { session }
     );
 
-    // 4. Update product stocks
-    if (productUpdates.length > 0) {
-      await ProductModel.bulkWrite(productUpdates, { session });
+    // 6. Update product stocks
+    if (bulkOperations.length > 0) {
+      await ProductModel.bulkWrite(bulkOperations, { session });
     }
 
-    // 5. Clear user's cart
+    // 7. Clear user's cart
     await User.findByIdAndUpdate(
       userId,
-      { $set: { cartData: {} } },
+      { $set: { cartData: new Map() } }, // Reset to empty Map
       { session }
     );
 
     await session.commitTransaction();
-    await session.endSession();
-
-    return {
-      success: true,
-      message: "Order placed successfully",
-      data: order[0],
-    };
+    return order;
   } catch (error) {
     await session.abortTransaction();
-    await session.endSession();
     throw error;
+  } finally {
+    await session.endSession();
   }
 };
-//!---------------------------------------------------
+
+// const placeOrderIntoDBWithShurjopay = async (
+//   payload: {
+//     products: { productId: string; quantity: number }[];
+//     address: string;
+//     city: string;
+//     postalCode: string;
+//     phone: string;
+//   },
+//   userId: string,
+//   client_ip: string
+// ) => {
+//   // 1. Check if user exists
+//   const isUserExist = await User.findById(userId);
+//   if (!isUserExist) {
+//     throw new AppError("User not found", StatusCodes.NOT_FOUND);
+//   }
+
+//   const products = payload.products;
+
+//   // 2. Fetch all product details from DB
+//   const productDetails = await Promise.all(
+//     products.map(async (item) => {
+//       const product = await ProductModel.findById(item.productId);
+//       if (!product) {
+//         throw new AppError(
+//           `Product with ID ${item.productId} not found`,
+//           StatusCodes.NOT_FOUND
+//         );
+//       }
+
+//       return {
+//         ...product.toObject(),
+//         orderedQuantity: item.quantity,
+//       };
+//     })
+//   );
+
+//   // 3. Validate stock availability
+//   for (const item of productDetails) {
+//     if (!item.inStock) {
+//       throw new AppError(`Product is out of stock`, StatusCodes.BAD_REQUEST);
+//     }
+
+//     if (item.stock < item.orderedQuantity) {
+//       throw new AppError(
+//         `Product has only ${item.stock} in stock`,
+//         StatusCodes.BAD_REQUEST
+//       );
+//     }
+//   }
+
+//   // 4. Update stock & mark inStock = false if needed
+//   await Promise.all(
+//     productDetails.map(async (item) => {
+//       const newStock = item.stock - item.orderedQuantity;
+
+//       await ProductModel.findByIdAndUpdate(item._id, {
+//         $set: {
+//           stock: newStock,
+//           inStock: newStock > 0,
+//         },
+//       });
+
+//       if (newStock < 0) {
+//         throw new AppError(
+//           `Unexpected error: stock for ${item.name} dropped below 0`,
+//           StatusCodes.INTERNAL_SERVER_ERROR
+//         );
+//       }
+//     })
+//   );
+
+//   // 5. Calculate total amount
+//   const totalAmount = productDetails.reduce(
+//     (acc, item) => acc + item.price * item.orderedQuantity,
+//     0
+//   );
+
+//   // 6. Prepare products array for order
+//   const orderProducts = products.map((item) => ({
+//     productId: new Types.ObjectId(item.productId),
+//     quantity: item.quantity,
+//   }));
+
+// const newOrder = await Order.create({
+//   userId,
+//   products: orderProducts,
+//   name: isUserExist.name,
+//   email: isUserExist.email,
+//   amount: totalAmount,
+//   address: payload.address,
+//   city: payload.city,
+//   postalCode: payload.postalCode,
+//   paymentMethod: "shurjopay",
+//   payment: false,
+//   paymentStatus: "Pending",
+//   transaction: {
+//     id: "",
+//     transactionStatus: "",
+//   },
+// });
+
+//   // 8. Optionally, add order to user's cart/history
+//   await User.findByIdAndUpdate(
+//     userId,
+//     {
+//       $push: { cartData: newOrder._id },
+//     },
+//     { new: true }
+//   );
+
+// payment gateway integration shurjopay
+// const shurjopayPayload = {
+//   amount: totalAmount,
+//   order_id: newOrder._id,
+//   currency: "BDT",
+//   customer_name: isUserExist.name,
+//   customer_email: isUserExist.email,
+//   customer_phone: payload.phone,
+//   customer_address: payload.address,
+//   customer_city: payload.city,
+//   customer_post_code: payload.postalCode,
+//   client_ip,
+// };
+
+// const payment = await orderUtils.makePaymentAsyn(shurjopayPayload);
+
+// // Update transaction details in the order
+// if (payment?.transactionStatus) {
+//   await Order.updateOne(
+//     { _id: newOrder._id },
+//     {
+//       $set: {
+//         "transaction.id": payment.sp_order_id,
+//         "transaction.transactionStatus": payment.transactionStatus,
+//       },
+//     }
+//   );
+// }
+
+//   return { newOrder, checkout_url: payment?.checkout_url };
+// };
 
 const placeOrderIntoDBWithShurjopay = async (
   payload: {
@@ -158,136 +306,176 @@ const placeOrderIntoDBWithShurjopay = async (
   userId: string,
   client_ip: string
 ) => {
-  // 1. Check if user exists
-  const isUserExist = await User.findById(userId);
-  if (!isUserExist) {
-    throw new AppError("User not found", StatusCodes.NOT_FOUND);
-  }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const products = payload.products;
+  try {
+    // 1. Get user with cart data
+    const user = await User.findById(userId).session(session);
+    if (!user) {
+      throw new AppError("User not found", StatusCodes.NOT_FOUND);
+    }
 
-  // 2. Fetch all product details from DB
-  const productDetails = await Promise.all(
-    products.map(async (item) => {
-      const product = await ProductModel.findById(item.productId);
+    // 2. Check if cart is empty
+    const cartData = user.cartData;
+    if (!cartData || cartData.size === 0) {
+      throw new AppError("Cart is empty", StatusCodes.BAD_REQUEST);
+    }
+
+    // 3. Process cart items
+    let totalAmount = 0;
+    const orderProducts = [];
+    const productUpdates = new Map(); // Track stock updates per product
+
+    // Get all unique product IDs from cart
+    const productIds = Array.from(
+      new Set(
+        Array.from(cartData.values()).map((item) => item.productId.toString())
+      )
+    );
+
+    // Fetch all products at once
+    const products = await ProductModel.find({
+      _id: { $in: productIds },
+    }).session(session);
+
+    // Process each cart item
+    for (const [key, cartItem] of cartData.entries()) {
+      const product = products.find(
+        (p) => p._id.toString() === cartItem.productId.toString()
+      );
       if (!product) {
         throw new AppError(
-          `Product with ID ${item.productId} not found`,
+          `Product ${cartItem.productId} not found`,
           StatusCodes.NOT_FOUND
         );
       }
 
-      return {
-        ...product.toObject(),
-        orderedQuantity: item.quantity,
-      };
-    })
-  );
+      // Initialize stock tracking for this product if not exists
+      if (!productUpdates.has(product._id.toString())) {
+        productUpdates.set(product._id.toString(), {
+          currentStock: product.stock,
+          totalDeduction: 0,
+        });
+      }
 
-  // 3. Validate stock availability
-  for (const item of productDetails) {
-    if (!item.inStock) {
-      throw new AppError(`Product is out of stock`, StatusCodes.BAD_REQUEST);
-    }
+      const productStock = productUpdates.get(product._id.toString());
 
-    if (item.stock < item.orderedQuantity) {
-      throw new AppError(
-        `Product has only ${item.stock} in stock`,
-        StatusCodes.BAD_REQUEST
-      );
-    }
-  }
-
-  // 4. Update stock & mark inStock = false if needed
-  await Promise.all(
-    productDetails.map(async (item) => {
-      const newStock = item.stock - item.orderedQuantity;
-
-      await ProductModel.findByIdAndUpdate(item._id, {
-        $set: {
-          stock: newStock,
-          inStock: newStock > 0,
-        },
-      });
-
-      if (newStock < 0) {
+      // Validate stock for this item
+      if (productStock.currentStock < cartItem.quantity) {
         throw new AppError(
-          `Unexpected error: stock for ${item.name} dropped below 0`,
-          StatusCodes.INTERNAL_SERVER_ERROR
+          `Insufficient stock for ${product.name} (Size: ${cartItem.size}). Only ${productStock.currentStock} available`,
+          StatusCodes.BAD_REQUEST
         );
       }
-    })
-  );
 
-  // 5. Calculate total amount
-  const totalAmount = productDetails.reduce(
-    (acc, item) => acc + item.price * item.orderedQuantity,
-    0
-  );
+      // Update tracking
+      productStock.currentStock -= cartItem.quantity;
+      productStock.totalDeduction += cartItem.quantity;
 
-  // 6. Prepare products array for order
-  const orderProducts = products.map((item) => ({
-    productId: new Types.ObjectId(item.productId),
-    quantity: item.quantity,
-  }));
+      // Add to order products
+      orderProducts.push({
+        productId: product._id,
+        quantity: cartItem.quantity,
+        size: cartItem.size,
+        price: cartItem.price,
+        name: cartItem.name,
+        image: cartItem.image,
+      });
 
-  const newOrder = await Order.create({
-    userId,
-    products: orderProducts,
-    name: isUserExist.name,
-    email: isUserExist.email,
-    amount: totalAmount,
-    address: payload.address,
-    city: payload.city,
-    postalCode: payload.postalCode,
-    paymentMethod: "shurjopay",
-    payment: false,
-    paymentStatus: "Pending",
-    transaction: {
-      id: "",
-      transactionStatus: "",
-    },
-  });
+      // Calculate total
+      totalAmount += cartItem.quantity * cartItem.price;
+    }
 
-  // 8. Optionally, add order to user's cart/history
-  await User.findByIdAndUpdate(
-    userId,
-    {
-      $push: { cartData: newOrder._id },
-    },
-    { new: true }
-  );
-
-  // payment gateway integration shurjopay
-  const shurjopayPayload = {
-    amount: totalAmount,
-    order_id: newOrder._id,
-    currency: "BDT",
-    customer_name: isUserExist.name,
-    customer_email: isUserExist.email,
-    customer_phone: payload.phone,
-    customer_address: payload.address,
-    customer_city: payload.city,
-    customer_post_code: payload.postalCode,
-    client_ip,
-  };
-
-  const payment = await orderUtils.makePaymentAsyn(shurjopayPayload);
-
-  // Update transaction details in the order
-  if (payment?.transactionStatus) {
-    await Order.updateOne(
-      { _id: newOrder._id },
-      {
-        $set: {
-          "transaction.id": payment.sp_order_id,
-          "transaction.transactionStatus": payment.transactionStatus,
+    // 4. Prepare bulk write operations for stock updates
+    const bulkOperations = Array.from(productUpdates.entries()).map(
+      ([productId, stockInfo]) => ({
+        updateOne: {
+          filter: { _id: productId },
+          update: {
+            $inc: { stock: -stockInfo.totalDeduction },
+            $set: {
+              inStock: stockInfo.currentStock - stockInfo.totalDeduction > 0,
+            },
+          },
         },
-      }
+      })
     );
-  }
 
-  return { newOrder, checkout_url: payment?.checkout_url };
+    // 5. Create order
+    const [order] = await Order.create(
+      [
+        {
+          userId,
+          products: orderProducts,
+          name: user.name,
+          email: user.email,
+          totalAmount,
+          address: payload.address,
+          city: payload.city,
+          postalCode: payload.postalCode,
+          status: "pending",
+          paymentMethod: "shurjopay",
+          payment: false,
+          paymentStatus: "Pending",
+          transaction: {
+            id: "",
+            transactionStatus: "",
+          },
+        },
+      ],
+      { session }
+    );
+
+    // 6. Update product stocks
+    if (bulkOperations.length > 0) {
+      await ProductModel.bulkWrite(bulkOperations, { session });
+    }
+
+    // 7. Clear user's cart
+    await User.findByIdAndUpdate(
+      userId,
+      { $set: { cartData: new Map() } },
+      { session }
+    );
+
+    // payment gateway integration shurjopay
+    const shurjopayPayload = {
+      amount: totalAmount,
+      order_id: order._id,
+      currency: "BDT",
+      customer_name: user.name,
+      customer_email: user.email,
+      customer_phone: payload.phone,
+      customer_address: payload.address,
+      customer_city: payload.city,
+      customer_post_code: payload.postalCode,
+      client_ip,
+    };
+
+    const payment = await orderUtils.makePaymentAsyn(shurjopayPayload);
+
+    // Update transaction details in the order
+    if (payment?.transactionStatus) {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            "transaction.id": payment.sp_order_id,
+            "transaction.transactionStatus": payment.transactionStatus,
+          },
+        }
+      );
+    }
+
+    await session.commitTransaction();
+    return { order, checkout_url: payment?.checkout_url };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 };
 
 const verifyPayment = async (
