@@ -67,8 +67,7 @@ const getUserOwnOrders = catchAsync(async (req, res) => {
 
 const updateOrderStatus = catchAsync(async (req, res) => {
   const { orderId } = req.params;
-  const { status } = req.body;
-  const result = await orderService.updateOrderStatusFromDB(orderId, status);
+  const result = await orderService.updateOrderStatusFromDB(orderId, req.body);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,

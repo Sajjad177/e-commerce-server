@@ -91,7 +91,8 @@ const placeOrderIntoDBWithCOD = async (
         size: cartItem.size,
         price: cartItem.price,
         name: cartItem.name,
-        image: cartItem.image,
+        image: cartItem.images[0],
+        orderStatus: "pending",
       });
 
       // Calculate total
@@ -151,149 +152,6 @@ const placeOrderIntoDBWithCOD = async (
     await session.endSession();
   }
 };
-
-// const placeOrderIntoDBWithShurjopay = async (
-//   payload: {
-//     products: { productId: string; quantity: number }[];
-//     address: string;
-//     city: string;
-//     postalCode: string;
-//     phone: string;
-//   },
-//   userId: string,
-//   client_ip: string
-// ) => {
-//   // 1. Check if user exists
-//   const isUserExist = await User.findById(userId);
-//   if (!isUserExist) {
-//     throw new AppError("User not found", StatusCodes.NOT_FOUND);
-//   }
-
-//   const products = payload.products;
-
-//   // 2. Fetch all product details from DB
-//   const productDetails = await Promise.all(
-//     products.map(async (item) => {
-//       const product = await ProductModel.findById(item.productId);
-//       if (!product) {
-//         throw new AppError(
-//           `Product with ID ${item.productId} not found`,
-//           StatusCodes.NOT_FOUND
-//         );
-//       }
-
-//       return {
-//         ...product.toObject(),
-//         orderedQuantity: item.quantity,
-//       };
-//     })
-//   );
-
-//   // 3. Validate stock availability
-//   for (const item of productDetails) {
-//     if (!item.inStock) {
-//       throw new AppError(`Product is out of stock`, StatusCodes.BAD_REQUEST);
-//     }
-
-//     if (item.stock < item.orderedQuantity) {
-//       throw new AppError(
-//         `Product has only ${item.stock} in stock`,
-//         StatusCodes.BAD_REQUEST
-//       );
-//     }
-//   }
-
-//   // 4. Update stock & mark inStock = false if needed
-//   await Promise.all(
-//     productDetails.map(async (item) => {
-//       const newStock = item.stock - item.orderedQuantity;
-
-//       await ProductModel.findByIdAndUpdate(item._id, {
-//         $set: {
-//           stock: newStock,
-//           inStock: newStock > 0,
-//         },
-//       });
-
-//       if (newStock < 0) {
-//         throw new AppError(
-//           `Unexpected error: stock for ${item.name} dropped below 0`,
-//           StatusCodes.INTERNAL_SERVER_ERROR
-//         );
-//       }
-//     })
-//   );
-
-//   // 5. Calculate total amount
-//   const totalAmount = productDetails.reduce(
-//     (acc, item) => acc + item.price * item.orderedQuantity,
-//     0
-//   );
-
-//   // 6. Prepare products array for order
-//   const orderProducts = products.map((item) => ({
-//     productId: new Types.ObjectId(item.productId),
-//     quantity: item.quantity,
-//   }));
-
-// const newOrder = await Order.create({
-//   userId,
-//   products: orderProducts,
-//   name: isUserExist.name,
-//   email: isUserExist.email,
-//   amount: totalAmount,
-//   address: payload.address,
-//   city: payload.city,
-//   postalCode: payload.postalCode,
-//   paymentMethod: "shurjopay",
-//   payment: false,
-//   paymentStatus: "Pending",
-//   transaction: {
-//     id: "",
-//     transactionStatus: "",
-//   },
-// });
-
-//   // 8. Optionally, add order to user's cart/history
-//   await User.findByIdAndUpdate(
-//     userId,
-//     {
-//       $push: { cartData: newOrder._id },
-//     },
-//     { new: true }
-//   );
-
-// payment gateway integration shurjopay
-// const shurjopayPayload = {
-//   amount: totalAmount,
-//   order_id: newOrder._id,
-//   currency: "BDT",
-//   customer_name: isUserExist.name,
-//   customer_email: isUserExist.email,
-//   customer_phone: payload.phone,
-//   customer_address: payload.address,
-//   customer_city: payload.city,
-//   customer_post_code: payload.postalCode,
-//   client_ip,
-// };
-
-// const payment = await orderUtils.makePaymentAsyn(shurjopayPayload);
-
-// // Update transaction details in the order
-// if (payment?.transactionStatus) {
-//   await Order.updateOne(
-//     { _id: newOrder._id },
-//     {
-//       $set: {
-//         "transaction.id": payment.sp_order_id,
-//         "transaction.transactionStatus": payment.transactionStatus,
-//       },
-//     }
-//   );
-// }
-
-//   return { newOrder, checkout_url: payment?.checkout_url };
-// };
 
 const placeOrderIntoDBWithShurjopay = async (
   payload: {
@@ -380,7 +238,8 @@ const placeOrderIntoDBWithShurjopay = async (
         size: cartItem.size,
         price: cartItem.price,
         name: cartItem.name,
-        image: cartItem.image,
+        image: cartItem.images[0],
+        orderStatus: "pending",
       });
 
       // Calculate total
@@ -517,55 +376,108 @@ const getAllOrdersFromDB = async () => {
 };
 
 const getUserOwnOrdersFromDB = async (userId: string) => {
-  const result = await Order.find({ userId }).populate(
-    "products.productId userId"
-  );
+  const result = await Order.find({ userId });
   return result;
 };
 
-const updateOrderStatusFromDB = async (orderId: string, status: string) => {
-  const order = await Order.findById(orderId);
-  if (!order) {
-    throw new AppError("Order not found", StatusCodes.NOT_FOUND);
+const updateOrderStatusFromDB = async (
+  orderId: string,
+  payload: {
+    productId: string;
+    size: string;
+    orderStatus: "pending" | "delivered" | "cancelled";
   }
+) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const product = order.products.map((item) => {
-    return {
-      productId: item.productId,
-      quantity: item.quantity,
-    };
-  });
-
-  const productQuantity = product.map((item) => item.quantity);
-  // console.log(productQuantity); from there i got data of quantity is: [ 2 ]
-
-  const productData = await ProductModel.find({
-    _id: { $in: product.map((item) => item.productId) },
-  });
-
-  if (status === "cancelled" && productData) {
-    for (let i = 0; i < productData.length; i++) {
-      const currentProduct = productData[i];
-      const productItem = product.find(
-        (item) => item.productId.toString() === currentProduct._id.toString()
-      );
-
-      if (productItem) {
-        await ProductModel.findByIdAndUpdate(currentProduct._id, {
-          $inc: { stock: productItem.quantity },
-          $set: { inStock: true },
-        });
-      }
+  try {
+    console.log(payload);
+    // 1. Validate and get the order
+    const order = await Order.findById(orderId).session(session);
+    if (!order) {
+      throw new AppError("Order not found", StatusCodes.NOT_FOUND);
     }
+
+    // 2. Find the specific product in the order
+    const productItem = order.products.find(
+      (item) =>
+        item.productId.toString() === payload.productId &&
+        item.size === payload.size
+    );
+    if (!productItem) {
+      throw new AppError(
+        "Product with specified size not found in order",
+        StatusCodes.NOT_FOUND
+      );
+    }
+
+    const originalStatus = productItem.orderStatus;
+
+    // 3. Handle stock changes if status is changing to/from cancelled
+    if (payload.orderStatus === "cancelled" || originalStatus === "cancelled") {
+      const product = await ProductModel.findById(payload.productId).session(
+        session
+      );
+      if (!product) {
+        throw new AppError("Product not found", StatusCodes.NOT_FOUND);
+      }
+
+      // Calculate stock adjustment
+      const stockAdjustment =
+        (payload.orderStatus === "cancelled" ? 1 : -1) * productItem.quantity;
+
+      await ProductModel.findByIdAndUpdate(
+        payload.productId,
+        {
+          $inc: { stock: stockAdjustment },
+          $set: { inStock: product.stock + stockAdjustment > 0 },
+        },
+        { session }
+      );
+    }
+
+    // 4. Update the specific product's status using arrayFilters
+    const updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      {
+        $set: {
+          "products.$[elem].orderStatus": payload.orderStatus,
+          // Update overall status if all products now have same status
+          ...(order.products.every(
+            (p) =>
+              (p._id.toString() === productItem._id.toString() &&
+                payload.orderStatus) ||
+              (p._id.toString() !== productItem._id.toString() &&
+                p.orderStatus === payload.orderStatus)
+          ) && {
+            status: payload.orderStatus,
+            ...(payload.orderStatus === "cancelled" && {
+              paymentStatus: "Cancelled",
+            }),
+          }),
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            "elem.productId": new mongoose.Types.ObjectId(payload.productId),
+            "elem.size": payload.size,
+          },
+        ],
+        new: true,
+        session,
+      }
+    );
+
+    await session.commitTransaction();
+    return updatedOrder;
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
   }
-
-  const result = await Order.findOneAndUpdate(
-    { _id: orderId },
-    { status },
-    { new: true }
-  );
-
-  return result;
 };
 
 export const orderService = {

@@ -26,6 +26,11 @@ const orderSchema = new Schema<TOrder>(
           type: Number,
           required: true,
         },
+        orderStatus: {
+          type: String,
+          enum: ["pending", "delivered", "cancelled"],
+          default: "pending",
+        },
       },
     ],
     totalAmount: {
