@@ -37,10 +37,10 @@ const orderSchema = new Schema<TOrder>(
       type: Number,
       required: true,
     },
-    address: {
-      type: String,
-      required: true,
-    },
+    // address: {
+    //   type: String,
+    //   required: true,
+    // },
     status: {
       type: String,
       enum: ["pending", "delivered", "cancelled"],

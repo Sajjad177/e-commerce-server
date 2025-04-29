@@ -21,6 +21,7 @@ const makePaymentAsyn = async (
     shurjopay.makePayment(
       paymetPayload,
       (response) => {
+        console.log(response);
         resolve(response);
       },
       (error) => {

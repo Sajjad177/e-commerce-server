@@ -18,11 +18,7 @@ router.post(
   productController.addProduct
 );
 
-router.get(
-  "/",
-  auth(USER_ROLE.superAdmin, USER_ROLE.user),
-  productController.getAllProducts
-);
+router.get("/", productController.getAllProducts);
 router.get("/:productId", productController.getSingleProduct);
 router.put(
   "/:productId",

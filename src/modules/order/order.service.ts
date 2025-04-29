@@ -4,142 +4,209 @@ import mongoose from "mongoose";
 import { StatusCodes } from "http-status-codes";
 import AppError from "../../errors/AppError";
 import { User } from "../user/user.model";
-import { TOrder } from "./order.interface";
 import { ProductModel } from "../product/product.model";
 import { Order } from "./order.model";
-import { Types } from "mongoose";
-import { orderUtils } from "./order.utils";
+// import { orderUtils } from "./order.utils";
 import { VerificationResponse } from "shurjopay";
+import { orderUtils } from "./order.utils";
+
+interface CartItem {
+  productId: mongoose.Types.ObjectId;
+  quantity: number;
+  size: string;
+  price: number;
+  name: string;
+  images: string[];
+}
+
+interface OrderPayload {
+  address: string;
+  city: string;
+  postalCode: string;
+  phone: string;
+  name: string;
+}
 
 const placeOrderIntoDBWithCOD = async (
-  payload: {
-    address: string;
-  },
+  payload: OrderPayload,
   userId: string
 ) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // 1. Get user with cart data
+    // 1. Validate inputs
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      throw new AppError("Invalid user ID", StatusCodes.BAD_REQUEST);
+    }
+
+    // 2. Get user with cart data
     const user = await User.findById(userId).session(session);
     if (!user) {
       throw new AppError("User not found", StatusCodes.NOT_FOUND);
     }
 
-    // 2. Check if cart is empty
-    const cartData = user.cartData;
-    if (!cartData || cartData.size === 0) {
+    // 3. Validate cart data
+    if (
+      !user.cartData ||
+      !(user.cartData instanceof Map) ||
+      user.cartData.size === 0
+    ) {
       throw new AppError("Cart is empty", StatusCodes.BAD_REQUEST);
     }
 
-    // 3. Process cart items
-    let totalAmount = 0;
-    const orderProducts = [];
-    const productUpdates = new Map(); // Track stock updates per product
-
-    // Get all unique product IDs from cart
-    const productIds = Array.from(
-      new Set(
-        Array.from(cartData.values()).map((item) => item.productId.toString())
-      )
-    );
-
-    // Fetch all products at once
-    const products = await ProductModel.find({
-      _id: { $in: productIds },
-    }).session(session);
-
-    // Process each cart item
-    for (const [key, cartItem] of cartData.entries()) {
-      const product = products.find(
-        (p) => p._id.toString() === cartItem.productId.toString()
-      );
-      if (!product) {
-        throw new AppError(
-          `Product ${cartItem.productId} not found`,
-          StatusCodes.NOT_FOUND
-        );
-      }
-
-      // Initialize stock tracking for this product if not exists
-      if (!productUpdates.has(product._id.toString())) {
-        productUpdates.set(product._id.toString(), {
-          currentStock: product.stock,
-          totalDeduction: 0,
-        });
-      }
-
-      const productStock = productUpdates.get(product._id.toString());
-
-      // Validate stock for this item
-      if (productStock.currentStock < cartItem.quantity) {
-        throw new AppError(
-          `Insufficient stock for ${product.name} (Size: ${cartItem.size}). Only ${productStock.currentStock} available`,
-          StatusCodes.BAD_REQUEST
-        );
-      }
-
-      // Update tracking
-      productStock.currentStock -= cartItem.quantity;
-      productStock.totalDeduction += cartItem.quantity;
-
-      // Add to order products
-      orderProducts.push({
-        productId: product._id,
-        quantity: cartItem.quantity,
-        size: cartItem.size,
-        price: cartItem.price,
-        name: cartItem.name,
-        image: cartItem.images[0],
-        orderStatus: "pending",
-      });
-
-      // Calculate total
-      totalAmount += cartItem.quantity * cartItem.price;
+    // 4. Convert cart data to array and validate
+    const cartItems = Array.from(user.cartData.values());
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      throw new AppError("Invalid cart items", StatusCodes.BAD_REQUEST);
     }
 
-    // 4. Prepare bulk write operations for stock updates
-    const bulkOperations = Array.from(productUpdates.entries()).map(
-      ([productId, stockInfo]) => ({
-        updateOne: {
-          filter: { _id: productId },
-          update: {
-            $inc: { stock: -stockInfo.totalDeduction },
-            $set: {
-              inStock: stockInfo.currentStock - stockInfo.totalDeduction > 0,
+    // 5. Get all unique product IDs with validation
+    const productIds = cartItems
+      .map((item) => item?.productId)
+      .filter(Boolean)
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    if (productIds.length === 0) {
+      throw new AppError("No valid products in cart", StatusCodes.BAD_REQUEST);
+    }
+
+    // 6. Fetch products with stock validation
+    const products = await ProductModel.find({
+      _id: { $in: productIds },
+      inStock: true,
+    }).session(session);
+
+    if (!products || products.length === 0) {
+      throw new AppError(
+        "No products found or all out of stock",
+        StatusCodes.BAD_REQUEST
+      );
+    }
+
+    // 7. Process order items with proper error handling
+    let totalAmount = 0;
+    const orderProducts = [];
+    const stockUpdates = new Map();
+
+    for (const cartItem of cartItems) {
+      try {
+        if (!cartItem?.productId || !cartItem?.quantity) {
+          console.warn("Invalid cart item skipped:", cartItem);
+          continue;
+        }
+
+        const product = products.find(
+          (p) => p._id.toString() === cartItem.productId.toString()
+        );
+
+        if (!product) {
+          throw new AppError(
+            `Product ${cartItem.productId} not found`,
+            StatusCodes.NOT_FOUND
+          );
+        }
+
+        // Initialize stock tracking
+        if (!stockUpdates.has(product._id.toString())) {
+          stockUpdates.set(product._id.toString(), {
+            currentStock: product.stock,
+            totalDeduction: 0,
+          });
+        }
+
+        const stockInfo = stockUpdates.get(product._id.toString());
+        const requestedQty = cartItem.quantity;
+
+        // Validate stock
+        if (stockInfo.currentStock < requestedQty) {
+          throw new AppError(
+            `Insufficient stock for ${product.name}. Available: ${stockInfo.currentStock}, Requested: ${requestedQty}`,
+            StatusCodes.BAD_REQUEST
+          );
+        }
+
+        // Update tracking
+        stockInfo.currentStock -= requestedQty;
+        stockInfo.totalDeduction += requestedQty;
+
+        // Add to order
+        orderProducts.push({
+          productId: product._id,
+          quantity: requestedQty,
+          size: cartItem.size || "M",
+          price: cartItem.price || product.price,
+          name: cartItem.name || product.name,
+          image: cartItem.images?.[0] || product.images?.[0] || "",
+          orderStatus: "pending",
+        });
+
+        totalAmount += requestedQty * (cartItem.price || product.price);
+      } catch (error) {
+        console.error(
+          `Error processing cart item ${cartItem.productId}:`,
+          error
+        );
+        throw error; // Re-throw to abort transaction
+      }
+    }
+
+    // 8. Validate we have items to order
+    if (orderProducts.length === 0) {
+      throw new AppError("No valid items to order", StatusCodes.BAD_REQUEST);
+    }
+
+    // 9. Prepare bulk operations with validation
+    const bulkOperations = Array.from(stockUpdates.entries()).map(
+      ([id, info]) => {
+        if (!info || typeof info.totalDeduction !== "number") {
+          throw new AppError(
+            "Invalid stock update data",
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+        }
+
+        return {
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(id) },
+            update: {
+              $inc: { stock: -info.totalDeduction },
+              $set: {
+                inStock: info.currentStock - info.totalDeduction > 0,
+              },
             },
           },
-        },
-      })
+        };
+      }
     );
 
-    // 5. Create order
-    const [order] = await Order.create(
-      [
-        {
-          userId,
-          products: orderProducts,
-          totalAmount,
-          address: payload.address,
-          status: "pending",
-          paymentMethod: "cod",
-          payment: false,
-          paymentStatus: "Pending",
-        },
-      ],
-      { session }
-    );
+    // 10. Create order with all required fields
+    const orderData = {
+      userId: new mongoose.Types.ObjectId(userId),
+      products: orderProducts,
+      totalAmount,
+      status: "pending",
+      paymentMethod: "cod",
+      payment: false,
+      paymentStatus: "Pending",
+      address: payload.address,
+      city: payload.city,
+      postalCode: payload.postalCode,
+      phone: payload.phone,
+      name: payload.name,
+    };
 
-    // 6. Update product stocks
+    const [order] = await Order.create([orderData], { session });
+
+    // 11. Update product stocks if needed
     if (bulkOperations.length > 0) {
       await ProductModel.bulkWrite(bulkOperations, { session });
     }
 
-    // 7. Clear user's cart
+    // 12. Clear user's cart
     await User.findByIdAndUpdate(
       userId,
-      { $set: { cartData: new Map() } }, // Reset to empty Map
+      { $set: { cartData: new Map() } },
       { session }
     );
 
@@ -147,6 +214,7 @@ const placeOrderIntoDBWithCOD = async (
     return order;
   } catch (error) {
     await session.abortTransaction();
+    console.error("Order placement failed:", error);
     throw error;
   } finally {
     await session.endSession();
@@ -154,13 +222,7 @@ const placeOrderIntoDBWithCOD = async (
 };
 
 const placeOrderIntoDBWithShurjopay = async (
-  payload: {
-    products: { productId: string; quantity: number }[];
-    address: string;
-    city: string;
-    postalCode: string;
-    phone: string;
-  },
+  payload: OrderPayload,
   userId: string,
   client_ip: string
 ) => {
@@ -168,124 +230,173 @@ const placeOrderIntoDBWithShurjopay = async (
   session.startTransaction();
 
   try {
+    console.log(payload);
+    // 1. Validate inputs
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      throw new AppError("Invalid user ID", StatusCodes.BAD_REQUEST);
+    }
+
     // 1. Get user with cart data
     const user = await User.findById(userId).session(session);
+    console.log(user);
     if (!user) {
       throw new AppError("User not found", StatusCodes.NOT_FOUND);
     }
 
-    // 2. Check if cart is empty
-    const cartData = user.cartData;
-    if (!cartData || cartData.size === 0) {
+    // 3. Validate cart data
+    if (
+      !user.cartData ||
+      !(user.cartData instanceof Map) ||
+      user.cartData.size === 0
+    ) {
       throw new AppError("Cart is empty", StatusCodes.BAD_REQUEST);
     }
 
-    // 3. Process cart items
-    let totalAmount = 0;
-    const orderProducts = [];
-    const productUpdates = new Map(); // Track stock updates per product
-
-    // Get all unique product IDs from cart
-    const productIds = Array.from(
-      new Set(
-        Array.from(cartData.values()).map((item) => item.productId.toString())
-      )
-    );
-
-    // Fetch all products at once
-    const products = await ProductModel.find({
-      _id: { $in: productIds },
-    }).session(session);
-
-    // Process each cart item
-    for (const [key, cartItem] of cartData.entries()) {
-      const product = products.find(
-        (p) => p._id.toString() === cartItem.productId.toString()
-      );
-      if (!product) {
-        throw new AppError(
-          `Product ${cartItem.productId} not found`,
-          StatusCodes.NOT_FOUND
-        );
-      }
-
-      // Initialize stock tracking for this product if not exists
-      if (!productUpdates.has(product._id.toString())) {
-        productUpdates.set(product._id.toString(), {
-          currentStock: product.stock,
-          totalDeduction: 0,
-        });
-      }
-
-      const productStock = productUpdates.get(product._id.toString());
-
-      // Validate stock for this item
-      if (productStock.currentStock < cartItem.quantity) {
-        throw new AppError(
-          `Insufficient stock for ${product.name} (Size: ${cartItem.size}). Only ${productStock.currentStock} available`,
-          StatusCodes.BAD_REQUEST
-        );
-      }
-
-      // Update tracking
-      productStock.currentStock -= cartItem.quantity;
-      productStock.totalDeduction += cartItem.quantity;
-
-      // Add to order products
-      orderProducts.push({
-        productId: product._id,
-        quantity: cartItem.quantity,
-        size: cartItem.size,
-        price: cartItem.price,
-        name: cartItem.name,
-        image: cartItem.images[0],
-        orderStatus: "pending",
-      });
-
-      // Calculate total
-      totalAmount += cartItem.quantity * cartItem.price;
+    // 4. Convert cart data to array and validate
+    const cartItems = Array.from(user.cartData.values());
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      throw new AppError("Invalid cart items", StatusCodes.BAD_REQUEST);
     }
 
-    // 4. Prepare bulk write operations for stock updates
-    const bulkOperations = Array.from(productUpdates.entries()).map(
-      ([productId, stockInfo]) => ({
-        updateOne: {
-          filter: { _id: productId },
-          update: {
-            $inc: { stock: -stockInfo.totalDeduction },
-            $set: {
-              inStock: stockInfo.currentStock - stockInfo.totalDeduction > 0,
+    // 5. Get all unique product IDs with validation
+    const productIds = cartItems
+      .map((item) => item?.productId)
+      .filter(Boolean)
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    if (productIds.length === 0) {
+      throw new AppError("No valid products in cart", StatusCodes.BAD_REQUEST);
+    }
+
+    // 6. Fetch products with stock validation
+    const products = await ProductModel.find({
+      _id: { $in: productIds },
+      inStock: true,
+    }).session(session);
+
+    if (!products || products.length === 0) {
+      throw new AppError(
+        "No products found or all out of stock",
+        StatusCodes.BAD_REQUEST
+      );
+    }
+
+    // 7. Process order items with proper error handling
+    let totalAmount = 0;
+    const orderProducts = [];
+    const stockUpdates = new Map();
+
+    for (const cartItem of cartItems) {
+      try {
+        if (!cartItem?.productId || !cartItem?.quantity) {
+          console.warn("Invalid cart item skipped:", cartItem);
+          continue;
+        }
+
+        const product = products.find(
+          (p) => p._id.toString() === cartItem.productId.toString()
+        );
+
+        if (!product) {
+          throw new AppError(
+            `Product ${cartItem.productId} not found`,
+            StatusCodes.NOT_FOUND
+          );
+        }
+
+        // Initialize stock tracking
+        if (!stockUpdates.has(product._id.toString())) {
+          stockUpdates.set(product._id.toString(), {
+            currentStock: product.stock,
+            totalDeduction: 0,
+          });
+        }
+
+        const stockInfo = stockUpdates.get(product._id.toString());
+        const requestedQty = cartItem.quantity;
+
+        // Validate stock
+        if (stockInfo.currentStock < requestedQty) {
+          throw new AppError(
+            `Insufficient stock for ${product.name}. Available: ${stockInfo.currentStock}, Requested: ${requestedQty}`,
+            StatusCodes.BAD_REQUEST
+          );
+        }
+
+        // Update tracking
+        stockInfo.currentStock -= requestedQty;
+        stockInfo.totalDeduction += requestedQty;
+
+        // Add to order
+        orderProducts.push({
+          productId: product._id,
+          quantity: requestedQty,
+          size: cartItem.size || "M",
+          price: cartItem.price || product.price,
+          name: cartItem.name || product.name,
+          image: cartItem.images?.[0] || product.images?.[0] || "",
+          orderStatus: "pending",
+        });
+
+        totalAmount += requestedQty * (cartItem.price || product.price);
+      } catch (error) {
+        console.error(
+          `Error processing cart item ${cartItem.productId}:`,
+          error
+        );
+        throw error; // Re-throw to abort transaction
+      }
+    }
+
+    // 8. Validate we have items to order
+    if (orderProducts.length === 0) {
+      throw new AppError("No valid items to order", StatusCodes.BAD_REQUEST);
+    }
+
+    // 9. Prepare bulk operations with validation
+    const bulkOperations = Array.from(stockUpdates.entries()).map(
+      ([id, info]) => {
+        if (!info || typeof info.totalDeduction !== "number") {
+          throw new AppError(
+            "Invalid stock update data",
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+        }
+
+        return {
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(id) },
+            update: {
+              $inc: { stock: -info.totalDeduction },
+              $set: {
+                inStock: info.currentStock - info.totalDeduction > 0,
+              },
             },
           },
-        },
-      })
+        };
+      }
     );
 
-    // 5. Create order
-    const [order] = await Order.create(
-      [
-        {
-          userId,
-          products: orderProducts,
-          name: user.name,
-          email: user.email,
-          totalAmount,
-          address: payload.address,
-          city: payload.city,
-          postalCode: payload.postalCode,
-          status: "pending",
-          paymentMethod: "shurjopay",
-          payment: false,
-          paymentStatus: "Pending",
-          transaction: {
-            id: "",
-            transactionStatus: "",
-          },
-        },
-      ],
-      { session }
-    );
+    const orderData = {
+      userId: new mongoose.Types.ObjectId(userId),
+      products: orderProducts,
+      totalAmount,
+      status: "pending",
+      payment: false,
+      paymentMethod: "shurjopay",
+      paymentStatus: "Pending",
+      address: payload.address,
+      city: payload.city,
+      postalCode: payload.postalCode,
+      phone: payload.phone,
+      name: payload.name,
+      transaction: {
+        id: "",
+        transactionStatus: "",
+      },
+    };
 
+    const [order] = await Order.create([orderData], { session });
     // 6. Update product stocks
     if (bulkOperations.length > 0) {
       await ProductModel.bulkWrite(bulkOperations, { session });
@@ -298,37 +409,37 @@ const placeOrderIntoDBWithShurjopay = async (
       { session }
     );
 
-    // payment gateway integration shurjopay
+    // Payment gateway integration - ShurjoPay
     const shurjopayPayload = {
       amount: totalAmount,
-      order_id: order._id,
+      order_id: order._id.toString(),
       currency: "BDT",
-      customer_name: user.name,
+      customer_name: payload.name || user.name,
       customer_email: user.email,
-      customer_phone: payload.phone,
-      customer_address: payload.address,
-      customer_city: payload.city,
-      customer_post_code: payload.postalCode,
+      customer_phone: payload.phone || user.phone || "017****",
+      customer_address:
+        payload.address || user.address || "Address not provided",
+      customer_city: payload.city || user.city || "City not provided",
+      customer_post_code: payload.postalCode || "510000",
       client_ip,
     };
 
-    const payment = await orderUtils.makePaymentAsyn(shurjopayPayload);
+    const paymentResponse = await orderUtils.makePaymentAsyn(shurjopayPayload);
 
-    // Update transaction details in the order
-    if (payment?.transactionStatus) {
-      await Order.updateOne(
-        { _id: order._id },
-        {
-          $set: {
-            "transaction.id": payment.sp_order_id,
-            "transaction.transactionStatus": payment.transactionStatus,
-          },
-        }
-      );
-    }
+    // 3. Update the order with payment details
+    const updatedOrder = await Order.findOneAndUpdate(
+      { _id: order._id },
+      {
+        $set: {
+          "transaction.id": paymentResponse.sp_order_id,
+          "transaction.transactionStatus": paymentResponse.transactionStatus,
+        },
+      },
+      { new: true, session }
+    );
 
     await session.commitTransaction();
-    return { order, checkout_url: payment?.checkout_url };
+    return { order, checkout_url: paymentResponse.checkout_url };
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -385,95 +496,150 @@ const updateOrderStatusFromDB = async (
   payload: {
     productId: string;
     size: string;
-    orderStatus: "pending" | "delivered" | "cancelled";
+    orderStatus: string;
   }
 ) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    console.log(payload);
-    // 1. Validate and get the order
+    // 1. Validate all required fields exist
+    if (!payload.productId || !payload.orderStatus) {
+      throw new AppError("Missing required fields", StatusCodes.BAD_REQUEST);
+    }
+
+    // 2. Normalize and validate size (handle undefined/null)
+    const normalizedSize = payload.size
+      ? payload.size.trim().toLowerCase()
+      : "unassigned";
+
+    // 3. Get the order with proper error handling
     const order = await Order.findById(orderId).session(session);
     if (!order) {
       throw new AppError("Order not found", StatusCodes.NOT_FOUND);
     }
 
-    // 2. Find the specific product in the order
-    const productItem = order.products.find(
-      (item) =>
-        item.productId.toString() === payload.productId &&
-        item.size === payload.size
-    );
-    if (!productItem) {
+    // 4. Convert productId to ObjectId with validation
+    let productIdToFind;
+    try {
+      productIdToFind = new mongoose.Types.ObjectId(payload.productId.trim());
+    } catch (err) {
+      throw new AppError("Invalid product ID format", StatusCodes.BAD_REQUEST);
+    }
+
+    // 6. Find the product with proper null checks
+    const productItem = order.products.find((item) => {
+      if (!item || !item.productId) return false;
+
+      // Convert both IDs to strings for comparison
+      const itemProductId = item.productId.toString();
+      const searchProductId = productIdToFind.toString();
+
+      // Normalize sizes
+      const itemSize = item.size
+        ? item.size.trim().toLowerCase()
+        : "unassigned";
+
+      console.log("Comparison:", {
+        itemProductId,
+        searchProductId,
+        itemSize,
+        searchSize: normalizedSize,
+        idMatch: itemProductId === searchProductId,
+        sizeMatch: itemSize === normalizedSize,
+        fullMatch:
+          itemProductId === searchProductId && itemSize === normalizedSize,
+      });
+
+      return itemProductId === searchProductId && itemSize === normalizedSize;
+    });
+
+    // 7. Validate product was found
+    if (!productItem || !productItem.orderStatus) {
       throw new AppError(
-        "Product with specified size not found in order",
+        `Product not found in order. Details: ${JSON.stringify({
+          searchedProductId: payload.productId,
+          searchedSize: payload.size,
+          normalizedSize,
+          availableProducts: order.products.map((p) => ({
+            productId: p.productId?.toString(),
+            size: p.size,
+            normalizedSize: p.size ? p.size.trim().toLowerCase() : "unassigned",
+            hasOrderStatus: !!p.orderStatus,
+          })),
+        })}`,
         StatusCodes.NOT_FOUND
       );
     }
 
     const originalStatus = productItem.orderStatus;
 
-    // 3. Handle stock changes if status is changing to/from cancelled
+    // 8. Handle stock changes if status is changing to/from cancelled
     if (payload.orderStatus === "cancelled" || originalStatus === "cancelled") {
       const product = await ProductModel.findById(payload.productId).session(
         session
       );
       if (!product) {
-        throw new AppError("Product not found", StatusCodes.NOT_FOUND);
+        throw new AppError(
+          "Product not found in inventory",
+          StatusCodes.NOT_FOUND
+        );
       }
 
       // Calculate stock adjustment
       const stockAdjustment =
-        (payload.orderStatus === "cancelled" ? 1 : -1) * productItem.quantity;
+        (payload.orderStatus === "cancelled" ? 1 : -1) *
+        (productItem.quantity || 0);
 
       await ProductModel.findByIdAndUpdate(
         payload.productId,
         {
           $inc: { stock: stockAdjustment },
-          $set: { inStock: product.stock + stockAdjustment > 0 },
+          $set: {
+            inStock: product.stock + stockAdjustment > 0,
+          },
         },
         { session }
       );
     }
 
-    // 4. Update the specific product's status using arrayFilters
-    const updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
-      {
-        $set: {
-          "products.$[elem].orderStatus": payload.orderStatus,
-          // Update overall status if all products now have same status
-          ...(order.products.every(
-            (p) =>
-              (p._id.toString() === productItem._id.toString() &&
-                payload.orderStatus) ||
-              (p._id.toString() !== productItem._id.toString() &&
-                p.orderStatus === payload.orderStatus)
-          ) && {
-            status: payload.orderStatus,
-            ...(payload.orderStatus === "cancelled" && {
-              paymentStatus: "Cancelled",
-            }),
-          }),
-        },
+    // 9. Update the order status
+    const updateQuery: any = {
+      $set: {
+        "products.$[elem].orderStatus": payload.orderStatus,
       },
-      {
-        arrayFilters: [
-          {
-            "elem.productId": new mongoose.Types.ObjectId(payload.productId),
-            "elem.size": payload.size,
-          },
-        ],
-        new: true,
-        session,
-      }
+    };
+
+    // 10. Check if all products now have same status
+    const allSameStatus = order.products.every(
+      (p) =>
+        p.orderStatus === payload.orderStatus ||
+        (p._id.equals(productItem._id) && payload.orderStatus)
     );
+
+    if (allSameStatus) {
+      updateQuery.$set.status = payload.orderStatus;
+      if (payload.orderStatus === "cancelled") {
+        updateQuery.$set.paymentStatus = "Cancelled";
+      }
+    }
+
+    const updatedOrder = await Order.findByIdAndUpdate(orderId, updateQuery, {
+      arrayFilters: [
+        {
+          "elem.productId": productIdToFind,
+          "elem.size": payload.size || { $exists: false },
+        },
+      ],
+      new: true,
+      session,
+    });
 
     await session.commitTransaction();
     return updatedOrder;
   } catch (error) {
     await session.abortTransaction();
+    console.error(error);
     throw error;
   } finally {
     await session.endSession();
