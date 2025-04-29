@@ -28,6 +28,17 @@ const getAllProducts = catchAsync(async (req, res) => {
   });
 });
 
+const getBestSellerProducts = catchAsync(async (req, res) => {
+  const result = await productService.getAllProductsFromDB();
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Products retrieved successfully",
+    data: result,
+  });
+});
+
 const getSingleProduct = catchAsync(async (req, res) => {
   const { productId } = req.params;
   const result = await productService.getSingleProductFromDB(productId);
@@ -67,6 +78,7 @@ const toggleProductAvailability = catchAsync(async (req, res) => {
 export const productController = {
   addProduct,
   getAllProducts,
+  getBestSellerProducts,
   getSingleProduct,
   updateProduct,
   toggleProductAvailability,

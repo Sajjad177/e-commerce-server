@@ -19,6 +19,7 @@ router.post(
 );
 
 router.get("/", productController.getAllProducts);
+router.get("/best-sellers", productController.getBestSellerProducts);
 router.get("/:productId", productController.getSingleProduct);
 router.put(
   "/:productId",

@@ -20,7 +20,14 @@ const addProductInDB = async (
 };
 
 const getAllProductsFromDB = async () => {
-  const result = await ProductModel.find().sort({
+  const result = await ProductModel.find({ isDeleted: false }).sort({
+    createdAt: -1,
+  });
+  return result;
+};
+
+const getBestSellerProductsFromDB = async () => {
+  const result = await ProductModel.find({ bestSeller: true }).sort({
     createdAt: -1,
   });
   return result;
@@ -64,6 +71,7 @@ const toggleProductAvailabilityInBD = async (productId: string) => {
 export const productService = {
   addProductInDB,
   getAllProductsFromDB,
+  getBestSellerProductsFromDB,
   getSingleProductFromDB,
   updateProductInDB,
   toggleProductAvailabilityInBD,
